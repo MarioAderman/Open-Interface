@@ -52,7 +52,7 @@ class App:
     def send_status_from_core_to_ui(self) -> None:
         while True:
             status: str = self.core.status_queue.get()
-            print(f'Sending status: {status}')
+            print(f'Sending status from thread - thread: {threading.current_thread().name}, status: {status}')
             self.ui.display_current_status(status)
 
     def send_user_request_from_ui_to_core(self) -> None:
@@ -62,6 +62,15 @@ class App:
 
             if user_request == 'stop':
                 self.core.stop_previous_request()
+
+                # ensures all threads are joined before force quit (my code)
+                try:
+                    for thread in threading.enumerate():
+                        if thread != threading.main_thread():
+                            thread.join(timeout=2)
+                except Exception as e:
+                    continue
+
             else:
                 threading.Thread(target=self.core.execute_user_request, args=(user_request,), daemon=True).start()
 

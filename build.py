@@ -100,6 +100,11 @@ def compile(signing_key=None):
         '--hidden-import=ttkbootstrap',
         '--hidden-import=openai',
 
+        # pypi google_genai doesn't play nice with pyinstaller without this
+        '--hidden-import=google_genai',
+        '--hidden-import=google',
+        '--hidden-import=google.genai',
+
         # NOTE: speech_recognition is the name of the directory that this package is in within ../site-packages/,
         # whereas the pypi name is SpeechRecognition (pip install SpeechRecognition).
         # This was hard to pin down and took a long time to debug.
@@ -167,6 +172,11 @@ def zip():
     return zip_name
 
 
+def setup():
+    # Update the venv with any new updates
+    os.system("pip install -r requirements.txt")
+
+
 if __name__ == '__main__':
     apple_code_signing_key = None
     if len(sys.argv) > 1:
@@ -175,4 +185,5 @@ if __name__ == '__main__':
     elif len(sys.argv) == 1 and platform.system() == 'Darwin':
         input("Are you sure you don't wanna sign your code? ")
 
+    setup()
     build(apple_code_signing_key)

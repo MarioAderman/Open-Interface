@@ -64,11 +64,20 @@ class UI:
                 ('GPT-4o-mini (Cheapest, Fastest)', 'gpt-4o-mini'),
                 ('GPT-4v (Deprecated. Most-Accurate, Slowest)', 'gpt-4-vision-preview'),
                 ('GPT-4-Turbo (Least Accurate, Fast)', 'gpt-4-turbo'),
+                ('', ''),
+                ('Gemini gemini-2.0-flash (Free, Fast)', 'gemini-2.0-flash'),
+                ('Gemini gemini-2.0-flash-lite', 'gemini-2.0-flash-lite'),
+                ('Gemini gemini-2.0-flash-thinking-exp', 'gemini-2.0-flash-thinking-exp'),
+                ('Gemini gemini-2.0-pro-exp-02-05', 'gemini-2.0-pro-exp-02-05'),
+                ('', ''),
                 ('Custom (Specify Settings Below)', 'custom')
             ]
             for text, value in models:
-                ttk.Radiobutton(radio_frame, text=text, value=value, variable=self.model_var, bootstyle="info").pack(
-                    anchor=ttk.W, pady=5)
+                if text == '' and value == '':
+                    ttk.Separator(radio_frame, orient='horizontal').pack(fill='x', pady=10)
+                else:
+                    ttk.Radiobutton(radio_frame, text=text, value=value, variable=self.model_var, bootstyle="info").pack(
+                        anchor=ttk.W, pady=5)
 
             label_base_url = ttk.Label(self, text='Custom OpenAI-Like API Model Base URL', bootstyle="secondary")
             label_base_url.pack(pady=10)
@@ -88,6 +97,11 @@ class UI:
             # Save Button
             save_button = ttk.Button(self, text='Save Settings', bootstyle="success", command=self.save_button)
             save_button.pack(pady=20)
+
+            # Restart App Label
+            restart_app_label = ttk.Label(self, text='Restart the app after any change in settings',
+                                          font=('Helvetica', 10))
+            restart_app_label.pack(pady=(0, 20))
 
         def save_button(self) -> None:
             base_url = self.base_url_entry.get().strip()
@@ -129,7 +143,7 @@ class UI:
 
         def create_widgets(self) -> None:
             # API Key Widgets
-            label_api = ttk.Label(self, text='OpenAI API Key:', bootstyle="info")
+            label_api = ttk.Label(self, text='OpenAI/Gemini/LLM Model API Key:', bootstyle="info")
             label_api.pack(pady=10)
             self.api_key_entry = ttk.Entry(self, width=30)
             self.api_key_entry.pack()
@@ -170,14 +184,19 @@ class UI:
             # Add binding for immediate theme change
             self.theme_combobox.bind('<<ComboboxSelected>>', self.on_theme_change)
 
-            # Save Button
-            save_button = ttk.Button(self, text='Save Settings', bootstyle="success", command=self.save_button)
-            save_button.pack(pady=(10, 5))
-
             # Button to open Advanced Settings
             advanced_settings_button = ttk.Button(self, text='Advanced Settings', bootstyle="info",
                                                   command=self.open_advanced_settings)
-            advanced_settings_button.pack(pady=(0, 10))
+            advanced_settings_button.pack(pady=(10, 0))
+
+            # Save Button
+            save_button = ttk.Button(self, text='Save Settings', bootstyle="success", command=self.save_button)
+            save_button.pack(pady=5)
+
+            # Restart App Label
+            restart_app_label = ttk.Label(self, text='Restart the app after any change in settings',
+                                          font=('Helvetica', 10))
+            restart_app_label.pack(pady=(0, 10))
 
             # Hyperlink Label
             link_label = ttk.Label(self, text='Setup Instructions', bootstyle="primary")
@@ -221,9 +240,6 @@ class UI:
             UI.AdvancedSettingsWindow(self)
 
     class MainWindow(ttk.Window):
-        def change_theme(self, theme_name: str) -> None:
-            self.style.theme_use(theme_name)
-
         def __init__(self):
             settings = Settings()
             settings_dict = settings.get_dict()
@@ -232,7 +248,7 @@ class UI:
             try:
                 super().__init__(themename=theme)
             except:
-                super().__init__()  # https://github.com/AmberSahdev/Open-Interface/issues/35  
+                super().__init__()  # https://github.com/AmberSahdev/Open-Interface/issues/35
 
             self.title('Open Interface')
             window_width = 450
@@ -255,12 +271,22 @@ class UI:
             # This adds app icon in linux which pyinstaller can't
             self.tk.call('wm', 'iconphoto', self._w, self.logo_img)
 
+            ###
             # MP Queue to facilitate communication between UI and Core.
             # Put user requests received from UI text box into this queue which will then be dequeued in App to be sent
             # to core.
             self.user_request_queue = Queue()
 
+            # Put messages to display on the UI here so we can dequeue them in the main thread
+            self.message_display_queue = Queue()
+            # Set up periodic UI processing
+            self.after(200, self.process_message_display_queue)
+            ###
+
             self.create_widgets()
+
+        def change_theme(self, theme_name: str) -> None:
+            self.style.theme_use(theme_name)
 
         def create_widgets(self) -> None:
             # Creates and arranges the UI elements
@@ -317,6 +343,9 @@ class UI:
             # Interrupt currently running request by queueing a stop signal.
             self.user_request_queue.put('stop')
 
+            # force quit program
+            self.destroy()
+
         def display_input(self) -> str:
             # Get the entry and update the input display
             user_input = self.entry.get()
@@ -370,7 +399,21 @@ class UI:
         def update_message(self, message: str) -> None:
             # Update the message display with the provided text.
             # Ensure thread safety when updating the Tkinter GUI.
-            if threading.current_thread() is threading.main_thread():
-                self.message_display['text'] = message
-            else:
-                self.message_display.after(0, lambda: self.message_display.config(text=message))
+            try:
+                if threading.current_thread() is threading.main_thread():
+                    self.message_display['text'] = message
+                else:
+                    self.message_display_queue.put(message)
+            except Exception as e:
+                print(f"Error updating message: {e}")
+
+        def process_message_display_queue(self):
+            try:
+                while not self.message_display_queue.empty():
+                    message = self.message_display_queue.get_nowait()
+                    self.message_display.config(text=message)
+            except Exception as e:
+                print(f"Error processing message_display_queue: {e}")
+
+            # Call this function every 100ms
+            self.after(200, self.process_message_display_queue)
